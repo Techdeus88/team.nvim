@@ -144,6 +144,8 @@ setup(opts)
 | `team/events.lua` | `User` autocmd emit helpers, event name constants, warning reporter that names the origin file. |
 | `team/log.lua` | In-memory log ring, read by UI and `:Team log`. |
 | `team/command.lua` | `:Team` with subcommands and completion. |
+| `team/ops.lua` | After `setup()`: update, enable and disable a team for the session, clean strays. |
+| `team/views.lua` | The status, profile and log buffers. |
 | `team/health.lua` | `:checkhealth team`. |
 | `team/ui/` | Window, render, actions (milestone 5). |
 | `plugin/team.lua` | Defines `:Team` only. Nothing else runs before `setup()`. |
@@ -173,15 +175,24 @@ Why `vim.pack.add` with a no-op `load`: it installs missing plugins and register
 
 ## 5. Commands
 
+`plugin/team.lua` defines `:Team` and nothing else; every subcommand waits for `setup()` and says so before it. Errors show the way Neovim shows one for a command you typed. A bang can go on the subcommand (`:Team update!`) or the command (`:Team! update`). Every subcommand completes, and so do its arguments.
+
 | Command | Effect |
 | --- | --- |
-| `:Team` | Open the window. |
-| `:Team load {team\|plugin}` | Load now. For a team: its `deps`, then its batch, then members not yet loaded. |
-| `:Team update [{team\|plugin}...]` | `vim.pack.update()` for those plugins (all when empty). |
-| `:Team enable\|disable {team}` | For this session only. Persistent disabling stays in config. |
-| `:Team clean` | List plugins on disk that no spec names, `vim.pack.del()` them after confirmation. |
-| `:Team profile` | Teams and plugins sorted by load cost. |
-| `:Team log` | The log. |
+| `:Team` | The status of every team and plugin: state, moment, why each loaded or is off. A plain buffer until the window of milestone 5. |
+| `:Team load {team\|plugin}...` | Load now. For a team: its `deps`, then its batch, then members not yet loaded. A name that is both a team and a plugin loads the team, and says so. Completes teams and plugins not loaded. |
+| `:Team update[!] [{team\|plugin}...]` | `vim.pack.update()` for those plugins, a team standing for its installed members; every installed plugin when none. `!` applies at once; without it `vim.pack` shows its confirmation buffer (`:write` applies). A plugin updated after it loaded warns to restart Neovim, since Lua modules cannot be unloaded. |
+| `:Team enable {team}` | For this session: install what the team and the dependencies only it needs lack, run its `init` and its members' (once a session), arm their triggers, and queue the members whose moment has passed. |
+| `:Team disable {team}` | For this session: members that have not loaded never will, their stubs go, and teams that need it cannot load. Members already loaded stay, with a warning. Persistent disabling stays in config. |
+| `:Team clean[!]` | Plugins `vim.pack` keeps that no spec names (a disabled plugin is still named, so it stays), deleted with `vim.pack.del()` after asking; `!` does not ask. |
+| `:Team profile` | `setup()` steps, then teams and plugins by load cost, slowest first: `packadd` and config apart, and why each loaded. |
+| `:Team log` | Everything team.nvim did and noticed, with ms since `setup()` started and the level. |
+
+`:checkhealth team`: Neovim 0.12+, `git`, whether `setup()` ran, every warning and error reported this session, plugins by state, the lockfile, and plugins on disk in no spec. Clean for a config with nothing wrong.
+
+The views (`:Team`, `:Team profile`, `:Team log`) are scratch buffers named `team://<view>`, opened in a split at the bottom or refreshed where they already show; `q` closes them.
+
+Lua API for the same: `update(names, force)`, `enable_team(name)`, `disable_team(name)`.
 
 ## 6. Example config
 
@@ -251,7 +262,7 @@ Each milestone ends with stylua, luacheck, lua-language-server and the tests gre
 | 1 | `config`, `collect`, `spec`, `graph`, `notes`: membership, merging, inheritance, batches, deps ordering, every warning. Pure Lua; problems are returned as notes for `setup()` to report in milestone 2. | Cases `spec`, `config`, `collect`, `teams` (ported from cinch's `groups.lua`), `batches`, `order`. |
 | 2 | `pack`, `loader`, `state`, `events`, `log`, `setup()`: register + install via `vim.pack.add`, `now` loading, `opts`/`config`/`after`/`init`, team hooks, timing, events, failures (4.1). | Cases `startup` (two sessions over the same dirs), `failures`, `api`, `args`: a real headless start loads `now` teams from local repos in order, hooks run once, events fire. |
 | 3 | `schedule` + `triggers`: `later` queue with `budget`, `now()`/`later()`, `event`, `ft`, `cmd`, `keys` with replay, `after_team` on teams and plugins, `order` on teams and plugins, batches on triggers, team `deps` pulling across phases (4.2). | Cases `triggers`, `later`, `after_team`, `pull`, and `order` extended. |
-| 4 | `:Team` commands, `health`, `:Team profile`, `:Team log`. | Each subcommand has a case; `:checkhealth team` clean. |
+| 4 | `:Team` commands, `ops`, `views`, `health` (section 5). | Cases `command`, `update`, `enable`, `clean` (two sessions), `health` (clean, then with problems), `nosetup`. |
 | 5 | UI: teams as collapsible sections with status and summed time, plugin rows, actions (load, update, enable/disable, open dir), help, throttled live render. | Visual check at narrow and wide sizes, light and dark. |
 | 6 | `build` hooks on `PackChanged`, `:Team clean`, first start deferred to `UIEnter` with the window showing installs (cinch's behavior, no `defer` option). | Fresh-machine case: lockfile present, nothing on disk, window shows installs. |
 | 7 | README, `doc/team.txt`, migration notes from cinch (`group` to `team`, `groups` setup to `teams`). | `:h team` works; README example runs as is. |

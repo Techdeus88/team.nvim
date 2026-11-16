@@ -121,18 +121,22 @@ local candidates = {
       local s = state.teams[n].state
       return s ~= 'loaded' and s ~= 'disabled'
     end)
-    for _, p in ipairs(state.list(function(p)
-      return p.state == 'installed' or p.state == 'missing'
-    end)) do
+    for _, p in
+      ipairs(state.list(function(p)
+        return p.state == 'installed' or p.state == 'missing'
+      end))
+    do
       res[#res + 1] = p.name
     end
     return res
   end,
   update = function()
     local res = vim.list_slice(state.team_order)
-    for _, p in ipairs(state.list(function(p)
-      return p.path ~= nil
-    end)) do
+    for _, p in
+      ipairs(state.list(function(p)
+        return p.path ~= nil
+      end))
+    do
       res[#res + 1] = p.name
     end
     return res

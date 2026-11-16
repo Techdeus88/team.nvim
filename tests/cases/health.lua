@@ -29,7 +29,10 @@ H.after_startup(function()
     H.ok(text:find('OK every plugin on disk is in a spec', 1, true), 'no strays')
     return
   end
-  H.ok(text:find('WARNING [^\n]*/health%.lua: `libby` has unknown field `bogus`; it is ignored'), 'a warning:\n' .. text)
+  H.ok(
+    text:find('WARNING [^\n]*/health%.lua: `libby` has unknown field `bogus`; it is ignored'),
+    'a warning:\n' .. text
+  )
   H.ok(text:find("ERROR `ghost` is not installed: fatal: '/nonexistent/ghost'", 1, true), 'vim.pack, as git said it')
   H.ok(text:find('plugins: 1 loaded, 1 failed', 1, true), 'plugins by state')
   H.ok(text:find('WARNING on disk, in no spec: solo', 1, true), 'a stray')

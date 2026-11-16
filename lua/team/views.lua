@@ -9,7 +9,7 @@ local M = {}
 
 local level_names = { [0] = 'TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR' }
 
----@param ms? number
+---@param n? number ms
 ---@return string
 local function ms(n)
   return n and ('%.2f ms'):format(n) or '-'

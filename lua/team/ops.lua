@@ -40,12 +40,13 @@ function M.expand(names)
     end
   end
   if #unknown > 0 then
-    return nil, ('no team or plugin is named %s'):format(table.concat(
-      vim.tbl_map(function(n)
-        return '`' .. n .. '`'
-      end, unknown),
-      ', '
-    ))
+    return nil,
+      ('no team or plugin is named %s'):format(table.concat(
+        vim.tbl_map(function(n)
+          return '`' .. n .. '`'
+        end, unknown),
+        ', '
+      ))
   end
   return res
 end
