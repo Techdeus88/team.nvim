@@ -17,11 +17,68 @@ vim.notify = function(msg, level)
   H.notes[#H.notes + 1] = { msg = tostring(msg), level = level }
 end
 
+-- Set once team.nvim's `later` queue has drained; wait for it with H.wait_later().
+H.later_done = false
+vim.api.nvim_create_autocmd('User', {
+  pattern = 'TeamLater',
+  once = true,
+  callback = function()
+    H.later_done = true
+  end,
+})
+
+--- Wait for the `later` queue to drain.
+function H.wait_later()
+  H.wait(function()
+    return H.later_done
+  end, 'the later queue')
+end
+
 --- A fixture repo from tests/fixtures/ as a `src`.
 ---@param name string
 ---@return string
 function H.src(name)
   return 'file://' .. vim.fs.joinpath(assert(vim.env.TEAM_FIXTURES), name)
+end
+
+--- A copy of a fixture that only this case uses, so it can add commits to it. Made once,
+--- so later phases find it as phase 1 left it.
+---@param name string
+---@return string src, string dir
+function H.own(name)
+  local dir = vim.fs.joinpath(H.home, 'repos', name)
+  if not vim.uv.fs_stat(dir) then
+    vim.fn.mkdir(vim.fs.dirname(dir), 'p')
+    H.sh({ 'git', 'clone', '-q', vim.fs.joinpath(assert(vim.env.TEAM_FIXTURES), name), dir })
+  end
+  return 'file://' .. dir, dir
+end
+
+--- Add a commit to a repo and return its hash.
+---@param dir string
+---@param msg string
+---@return string
+function H.commit(dir, msg)
+  H.sh({ 'git', 'commit', '-q', '--allow-empty', '-m', msg }, dir)
+  return H.sh({ 'git', 'rev-parse', 'HEAD' }, dir)
+end
+
+--- Run :checkhealth for `name` and return the report once it is written.
+---@param name string
+---@return string
+function H.health(name)
+  vim.cmd('checkhealth ' .. name)
+  H.wait(function()
+    return H.text():find('- ', 1, true) ~= nil
+  end, 'the health report')
+  return H.text()
+end
+
+--- A buffer's lines, joined.
+---@param buf? integer default: the current one
+---@return string
+function H.text(buf)
+  return table.concat(vim.api.nvim_buf_get_lines(buf or 0, 0, -1, false), '\n')
 end
 
 --- Run a command and return its trimmed stdout; raise when it fails.
@@ -63,6 +120,54 @@ function H.noted(pattern)
   return false
 end
 
+--- Read config the way setup() will: options, then teams and specs, then the graph.
+---@param opts? table setup() options
+---@return team.Graph graph
+---@return team.Notes notes
+---@return team.Collected collected
+function H.build(opts)
+  local notes = require('team.notes').new()
+  local origin = { file = 'init.lua' }
+  local config = require('team.config').resolve(opts, origin, notes)
+  local collected = require('team.collect').collect(config, origin, notes)
+  return require('team.graph').build(collected, notes), notes, collected
+end
+
+--- Every note's message, for a failure to show.
+---@param notes team.Notes
+---@return string
+local function listing(notes)
+  local lines = vim.tbl_map(function(n)
+    return '  ' .. n.msg
+  end, notes.list)
+  return #lines > 0 and table.concat(lines, '\n') or '  (none)'
+end
+
+--- Fail unless a note's message holds `text`, as is.
+---@param notes team.Notes
+---@param text string
+---@param what? string
+function H.says(notes, text, what)
+  for _, n in ipairs(notes.list) do
+    if n.msg:find(text, 1, true) then
+      return
+    end
+  end
+  error(('%s: no note says %q; notes:\n%s'):format(what or 'note', text, listing(notes)), 2)
+end
+
+--- Fail if a note's message holds `text`.
+---@param notes team.Notes
+---@param text string
+---@param what? string
+function H.silent(notes, text, what)
+  for _, n in ipairs(notes.list) do
+    if n.msg:find(text, 1, true) then
+      error(('%s: a note says %q: %s'):format(what or 'note', text, n.msg), 2)
+    end
+  end
+end
+
 --- Wait until `cond` holds, or fail after `ms`.
 ---@param cond fun(): boolean
 ---@param what string
@@ -71,6 +176,13 @@ function H.wait(cond, what, ms)
   if not vim.wait(ms or 5000, cond, 10) then
     error('timed out waiting for ' .. what, 2)
   end
+end
+
+--- Type keys as you would, and let what they scheduled run.
+---@param keys string
+function H.press(keys)
+  vim.api.nvim_feedkeys(vim.keycode(keys), 'xt', false)
+  vim.wait(20)
 end
 
 --- Write `lines` to `path`. A relative path is under the case's config dir.
