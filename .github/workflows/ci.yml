@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, ${{ matrix.neovim }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        # v0.12.0 is the oldest Neovim team.nvim supports.
+        neovim: [v0.12.0, stable, nightly]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: ${{ matrix.neovim }}
+      - run: make test
+
+  lint:
+    name: lint and typecheck
+    runs-on: ubuntu-latest
+    env:
+      STYLUA_VERSION: 2.6.0
+      LUACHECK_VERSION: 1.2.0
+      LUALS_VERSION: 3.19.2
+    steps:
+      - uses: actions/checkout@v7
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+      - name: Install stylua
+        uses: JohnnyMorganz/stylua-action@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: ${{ env.STYLUA_VERSION }}
+          args: --version
+      - name: Install luacheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y luarocks
+          sudo luarocks install luacheck "$LUACHECK_VERSION"
+      - name: Install lua-language-server
+        run: |
+          mkdir -p "$RUNNER_TEMP/luals"
+          curl -fsSL "https://github.com/LuaLS/lua-language-server/releases/download/$LUALS_VERSION/lua-language-server-$LUALS_VERSION-linux-x64.tar.gz" \
+            | tar xz -C "$RUNNER_TEMP/luals"
+          echo "$RUNNER_TEMP/luals/bin" >> "$GITHUB_PATH"
+      - run: make lint
+      - run: make typecheck
