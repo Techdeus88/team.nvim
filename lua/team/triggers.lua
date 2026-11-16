@@ -53,22 +53,62 @@ local function sort(w)
   end)
 end
 
---- Load the plugins behind a trigger, then replay it once, when any of them loaded.
+---@type table<string, true> triggers whose replay waits for an install or a build
+local replay_pending = {}
+
+--- Load the plugins behind a trigger, then replay it once, when any of them loaded. When
+--- some wait for an install or a build, the replay waits for them too.
 ---@param names string[]
 ---@param reason string
 ---@param replay? fun()
 local function fire(names, reason, replay)
   local loader = require('team.loader')
-  local any = false
+  local any, waiting = false, {}
   for _, name in ipairs(vim.list_slice(names)) do
     local p = state.plugins[name]
-    if p.state ~= 'loaded' and loader.load(p, reason) then
-      any = true
+    if p.state ~= 'loaded' then
+      local ok = loader.load(p, reason)
+      if ok then
+        any = true
+      elseif ok == nil then
+        waiting[#waiting + 1] = name
+      end
     end
   end
-  if any and replay then
-    replay()
+  if not replay then
+    return
   end
+  if #waiting == 0 then
+    if any then
+      replay()
+    end
+    return
+  end
+  -- Once, however often the trigger fires while it waits.
+  if replay_pending[reason] then
+    return
+  end
+  replay_pending[reason] = true
+  local id
+  id = api.nvim_create_autocmd('User', {
+    pattern = { 'TeamPluginLoad', 'TeamPluginFail' },
+    desc = 'team.nvim: replay ' .. reason .. ' once its plugins are in',
+    callback = function()
+      local loaded = any
+      for _, n in ipairs(waiting) do
+        local s = state.plugins[n].state
+        if s ~= 'loaded' and s ~= 'failed' then
+          return
+        end
+        loaded = loaded or s == 'loaded'
+      end
+      api.nvim_del_autocmd(id)
+      replay_pending[reason] = nil
+      if loaded then
+        vim.schedule(replay)
+      end
+    end,
+  })
 end
 
 -- event / ft ------------------------------------------------------------------

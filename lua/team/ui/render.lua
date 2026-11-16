@@ -26,6 +26,8 @@ M.state_hl = {
   installed = 'TeamWaiting',
   pending = 'TeamWaiting',
   loading = 'TeamLoading',
+  installing = 'TeamLoading',
+  building = 'TeamLoading',
   partial = 'TeamLoading',
   failed = 'TeamFailed',
   missing = 'TeamMissing',
@@ -283,6 +285,9 @@ local function details(screen, p, width)
   row('reason', p.reason)
   row('error', p.err, 'TeamFailed')
   row('off', p.disabled_by and M.off(p.disabled_by))
+  local b = p.spec.build
+  row('build', b and (type(b) == 'string' and b or 'function') .. (p.building and ' (running)' or ''))
+  row('build err', p.build_err, 'TeamFailed')
   if p.time then
     row('time', ('packadd %s, config %s'):format(ms(p.time.packadd or 0), ms(p.time.config or 0)), 'TeamTime')
   end
@@ -296,15 +301,23 @@ end
 ---@param view team.ui.View
 local function plugin_row(screen, p, cols, width, view)
   local l = line():add('     '):add(p.name, p.dep_only and 'TeamDep' or 'TeamPlugin', cols.name):add('  ')
-  l:add(p.state, M.state_hl[p.state], 9)
+  local shown = p.building and 'building' or p.state
+  l:add(shown, M.state_hl[shown], 9)
   if cols.how then
     l:add('  '):add(M.how(p), 'TeamMuted', cols.how)
   end
   local time = p.time and ms(cost(p)) or ''
   if cols.why then
-    local why = p.err or (p.state == 'loaded' and p.reason) or (p.disabled_by and M.off(p.disabled_by)) or ''
+    local why = p.err
+      or (p.building and p.building ~= 'function' and p.building)
+      or (p.waiting and ('waiting for ' .. p.waiting))
+      or (p.build_err and ('build failed: ' .. p.build_err))
+      or (p.state == 'loaded' and p.reason)
+      or (p.disabled_by and M.off(p.disabled_by))
+      or ''
+    local bad = p.err or (not p.building and not p.waiting and p.build_err)
     local room = width - l.width - 2 - 11
-    l:add('  '):add(why, p.err and 'TeamFailed' or 'TeamMuted', math.max(room, 0))
+    l:add('  '):add(why, bad and 'TeamFailed' or 'TeamMuted', math.max(room, 0))
   end
   l:to(width - #time - 1):add(time, 'TeamTime')
   push(screen, l, { kind = 'plugin', name = p.name })

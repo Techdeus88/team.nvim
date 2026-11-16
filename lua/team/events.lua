@@ -29,6 +29,8 @@ M.names = {
   Setup = 'TeamSetup',
   -- { ms } once the `later` queue has drained for the first time
   Later = 'TeamLater',
+  -- { plugin, kind, ok, ms, err? } once a build has finished; kind: install, update, retry
+  Build = 'TeamBuild',
   -- { msg, level, plugin?, team? } every message team.nvim reports
   Report = 'TeamReport',
 }
@@ -85,7 +87,7 @@ end
 --- Record a message, tell listeners, and show warnings and errors, once a tick.
 ---@param msg string
 ---@param level? integer default INFO
----@param about? { plugin?: string, team?: string }
+---@param about? team.About
 function M.report(msg, level, about)
   level = level or vim.log.levels.INFO
   local e = log.add(level, msg, about)

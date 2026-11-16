@@ -275,11 +275,66 @@ local function configure(p)
   return true
 end
 
---- Load a plugin and everything it needs first.
+-- Installs and builds ---------------------------------------------------------
+
+---@type table<string, fun()[]> plugin name -> what runs once it can load
+local waiters = {}
+
+--- Whether a plugin cannot load yet: vim.pack is installing it, or its build runs.
+---@param p team.Plugin
+---@return boolean
+function M.blocked(p)
+  return p.state == 'installing' or p.building ~= nil
+end
+
+--- The first plugin a load of `p` needs that cannot load yet: `p`, its deps, and the
+--- batches of the teams its team needs, however deep.
+---@param p team.Plugin
+---@param seen? table<string, true>
+---@return team.Plugin?
+local function find_blocked(p, seen)
+  seen = seen or {}
+  if seen[p.name] then
+    return
+  end
+  seen[p.name] = true
+  if M.blocked(p) then
+    return p
+  end
+  for _, d in ipairs(p.deps) do
+    local b = find_blocked(state.plugins[d], seen)
+    if b then
+      return b
+    end
+  end
+  local t = p.team and state.teams[p.team]
+  for _, needed in ipairs(t and not t.ready and t.deps or {}) do
+    local nt = state.teams[needed]
+    for _, m in ipairs(nt.state ~= 'loaded' and nt.batch or {}) do
+      local b = find_blocked(state.plugins[m], seen)
+      if b then
+        return b
+      end
+    end
+  end
+end
+
+--- A plugin can load again: run what waited for it, in the order it started waiting.
+---@param p team.Plugin
+function M.unblock(p)
+  local fns = waiters[p.name] or {}
+  waiters[p.name] = nil
+  for _, fn in ipairs(fns) do
+    fn()
+  end
+end
+
+--- Load a plugin and everything it needs first. While something it needs is installing
+--- or building, it waits: the load runs once that is done, and this returns nil.
 ---@param p team.Plugin
 ---@param reason string
----@return boolean ok
----@return string? err
+---@return boolean? ok nil: waiting
+---@return string? err or what it waits for
 function M.load(p, reason)
   if p.state == 'loaded' or p.state == 'loading' then
     return true
@@ -287,7 +342,21 @@ function M.load(p, reason)
     return false, p.err
   elseif p.state == 'disabled' then
     return false, ('`%s` is disabled'):format(p.name)
-  elseif p.state == 'missing' or not p.path then
+  end
+  local b = find_blocked(p)
+  if b then
+    if not p.waiting then
+      p.waiting = b.name
+      waiters[b.name] = waiters[b.name] or {}
+      table.insert(waiters[b.name], function()
+        p.waiting = nil
+        M.load(p, reason)
+      end)
+    end
+    local what = b.state == 'installing' and 'install' or 'build'
+    return nil, ('waiting for `%s` to %s'):format(b.name, what == 'install' and 'install' or 'finish its build')
+  end
+  if p.state == 'missing' or not p.path then
     return fail(p, p.err or 'not installed')
   end
   local t = p.team and state.teams[p.team]
@@ -345,11 +414,12 @@ function M.load_batch(t, reason)
   elseif t.state == 'disabled' then
     return false, ('team `%s` is disabled'):format(t.name)
   end
+  -- A member that waits for an install or a build loads once it can: not a failure.
   local ok = true
   for _, name in ipairs(state.order) do
     local p = state.plugins[name]
-    if p.team == t.name and p.in_batch then
-      ok = M.load(p, reason) and ok
+    if p.team == t.name and p.in_batch and M.load(p, reason) == false then
+      ok = false
     end
   end
   return ok, not ok and ('team `%s` did not load'):format(t.name) or nil
@@ -364,8 +434,8 @@ function M.load_team(t, reason)
   local ok = M.load_batch(t, reason)
   for _, name in ipairs(state.order) do
     local p = state.plugins[name]
-    if p.team == t.name and p.state ~= 'disabled' then
-      ok = M.load(p, reason) and ok
+    if p.team == t.name and p.state ~= 'disabled' and M.load(p, reason) == false then
+      ok = false
     end
   end
   return ok, not ok and ('team `%s` did not load'):format(t.name) or nil

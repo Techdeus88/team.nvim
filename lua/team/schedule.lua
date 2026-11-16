@@ -50,8 +50,9 @@ local function drain()
     next_item = next_item + 1
     if type(x) == 'function' then
       run(x, 'later')
-    elseif x.state == 'installed' or x.state == 'missing' then
-      -- Anything else loaded meanwhile (a dependency, a trigger), failed, or is off.
+    elseif x.state == 'installed' or x.state == 'missing' or x.state == 'installing' then
+      -- Anything else loaded meanwhile (a dependency, a trigger), failed, or is off. One
+      -- still installing waits for its install and loads after it.
       loader.load(x, 'later')
     end
     if (vim.uv.hrtime() - start) / 1e6 >= M.budget then

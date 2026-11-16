@@ -8,7 +8,7 @@ local M = {}
 
 -- graph.lua sets `pending` or `disabled`; pack.lua and loader.lua move them on from there.
 ---@alias team.TeamState 'pending'|'partial'|'loaded'|'failed'|'disabled'
----@alias team.PluginState 'pending'|'missing'|'installed'|'loading'|'loaded'|'failed'|'disabled'
+---@alias team.PluginState 'pending'|'installing'|'missing'|'installed'|'loading'|'loaded'|'failed'|'disabled'
 
 ---@class team.Times
 ---@field packadd? number ms
@@ -65,6 +65,10 @@ local M = {}
 ---@field time? team.Times
 ---@field err? string why it failed or is missing
 ---@field did_init? true its `init` has run this session
+---@field building? string its build, while it runs
+---@field build_queued? true its build waits for VimEnter
+---@field build_err? string why its last build failed
+---@field waiting? string the plugin its load waits for, to finish installing or building
 
 ---@class team.Graph
 ---@field teams table<string, team.Team>

@@ -44,14 +44,49 @@ function M.setup(opts)
   state.init(graph, config)
   state.times.specs = since(start)
 
+  -- A first start waits for the UI, so the window can show the installs: the plugins not
+  -- on disk, or every plugin when the lockfile lists some that are not (vim.pack's first
+  -- call would install those during init.lua). Headless Neovim installs at once.
+  local pack, build, schedule = require('team.pack'), require('team.build'), require('team.schedule')
+  build.timeout = config.build_timeout
+  local earlier = build.pending()
+  build.watch()
+  local on = state.list(function(p)
+    return p.state ~= 'disabled'
+  end)
+  local held = {}
+  if vim.v.vim_did_enter == 0 and schedule.ui_coming() then
+    local missing = vim.tbl_filter(function(p)
+      return not vim.uv.fs_stat(vim.fs.joinpath(pack.dir(), p.name))
+    end, on)
+    if #missing > 0 then
+      held = #pack.lock_missing() > 0 and on or missing
+    end
+  end
   local t0 = vim.uv.hrtime()
-  require('team.pack').register(
-    state.list(function(p)
-      return p.state ~= 'disabled'
-    end),
+  pack.register(
+    vim.tbl_filter(function(p)
+      return not vim.list_contains(held, p)
+    end, on),
     config.confirm
   )
   state.times.pack = since(t0)
+  for _, p in ipairs(held) do
+    -- Its loads wait for the install.
+    state.set(p, 'installing')
+  end
+  if #held > 0 then
+    vim.api.nvim_create_autocmd('UIEnter', {
+      once = true,
+      callback = vim.schedule_wrap(function()
+        require('team.ui').open('teams')
+        vim.cmd.redraw()
+        pack.register(held, config.confirm)
+        require('team.ui').redraw()
+      end),
+    })
+  end
+  build.retry(earlier)
 
   -- Every startup, before anything loads: each team's `init`, then each plugin's.
   t0 = vim.uv.hrtime()
@@ -70,11 +105,8 @@ function M.setup(opts)
   state.times.init = since(t0)
 
   -- Triggers first, so `after_team` is watching when the `now` teams load.
-  local schedule, triggers = require('team.schedule'), require('team.triggers')
+  local triggers = require('team.triggers')
   schedule.budget = config.budget
-  local on = state.list(function(p)
-    return p.state ~= 'disabled'
-  end)
   for _, p in ipairs(on) do
     triggers.arm(p)
   end
@@ -129,7 +161,7 @@ end
 
 --- Load a plugin now, with what it needs.
 ---@param name string
----@return boolean ok
+---@return boolean? ok nil: it waits for an install or a build, and loads after
 ---@return string? err
 function M.load(name)
   local p = M.get(name)

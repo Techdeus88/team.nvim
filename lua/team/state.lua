@@ -32,12 +32,21 @@ end
 ---@param s team.PluginState
 ---@param err? string
 function M.set(p, s, err)
+  if p.state == s and (err == nil or err == p.err) then
+    return
+  end
   p.state, p.err = s, err or p.err
   if s == 'loaded' then
     M.loaded = M.loaded + 1
     p.seq = M.loaded
   end
   events.emit(events.names.State, { plugin = p.name, team = p.team, state = s })
+end
+
+--- Tell listeners a plugin changed without a new state: its build started or ended.
+---@param p team.Plugin
+function M.touch(p)
+  events.emit(events.names.State, { plugin = p.name, team = p.team, state = p.state })
 end
 
 ---@param t team.Team

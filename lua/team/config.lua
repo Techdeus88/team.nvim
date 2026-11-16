@@ -10,6 +10,7 @@ local M = {}
 ---@field confirm? boolean ask before installing; default true
 ---@field budget? number ms of `later` loading per event-loop tick; default 5
 ---@field ui? team.UiOpts the window
+---@field build_timeout? number seconds a shell or async function build may take; default 300
 
 ---@class team.Config
 ---@field teams table<string, team.TeamFields>
@@ -18,6 +19,7 @@ local M = {}
 ---@field confirm boolean
 ---@field budget number
 ---@field ui team.UiOpts
+---@field build_timeout number
 
 ---@class team.UiOpts
 ---@field size? number share of the editor, 0.3 to 1; default 0.8
@@ -25,7 +27,15 @@ local M = {}
 
 ---@return team.Config
 function M.defaults()
-  return { teams = {}, teams_dir = 'teams', spec = { 'plugins' }, confirm = true, budget = 5, ui = { size = 0.8 } }
+  return {
+    teams = {},
+    teams_dir = 'teams',
+    spec = { 'plugins' },
+    confirm = true,
+    budget = 5,
+    ui = { size = 0.8 },
+    build_timeout = 300,
+  }
 end
 
 ---@type table<string, { [1]: (fun(v: any): boolean), [2]: string }>
@@ -53,6 +63,12 @@ local checks = {
       return type(v) == 'number' and v > 0
     end,
     'a number of ms above 0',
+  },
+  build_timeout = {
+    function(v)
+      return type(v) == 'number' and v > 0
+    end,
+    'a number of seconds above 0',
   },
   ui = {
     function(v)

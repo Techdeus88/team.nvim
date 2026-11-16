@@ -21,10 +21,12 @@ local function fail(msg)
   vim.api.nvim_echo({ { 'team.nvim: ' .. msg } }, true, { err = true })
 end
 
----@param ok boolean
+---@param ok boolean? nil: it waits for an install or a build
 ---@param err? string
 local function check(ok, err)
-  if not ok and err then
+  if ok == nil and err then
+    vim.api.nvim_echo({ { 'team.nvim: ' .. err } }, true, {})
+  elseif not ok and err then
     fail(err)
   end
 end

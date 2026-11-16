@@ -198,10 +198,10 @@ local function cycle(step)
 end
 
 --- Say why an action did not work.
----@param ok boolean
+---@param ok boolean? nil: it waits for an install or a build
 ---@param err? string
 local function report(ok, err)
-  if not ok and err then
+  if ok == false and err then
     require('team.events').report(err, vim.log.levels.ERROR)
   end
 end

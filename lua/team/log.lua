@@ -2,6 +2,10 @@
 
 local M = {}
 
+---@class team.About what a message is about
+---@field plugin? string
+---@field team? string
+
 ---@class team.LogEntry
 ---@field ms number since setup() started
 ---@field level integer
@@ -16,7 +20,7 @@ M.start = vim.uv.hrtime()
 
 ---@param level integer
 ---@param msg string
----@param about? { plugin?: string, team?: string }
+---@param about? team.About
 ---@return team.LogEntry
 function M.add(level, msg, about)
   about = about or {}

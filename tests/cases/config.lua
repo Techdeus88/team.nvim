@@ -10,8 +10,15 @@ H.after_startup(function()
     return config.resolve(opts, at, notes), notes
   end
 
-  local defaults =
-    { teams = {}, teams_dir = 'teams', spec = { 'plugins' }, confirm = true, budget = 5, ui = { size = 0.8 } }
+  local defaults = {
+    teams = {},
+    teams_dir = 'teams',
+    spec = { 'plugins' },
+    confirm = true,
+    budget = 5,
+    ui = { size = 0.8 },
+    build_timeout = 300,
+  }
   H.eq(resolve(nil), defaults, 'nothing given')
   H.eq(resolve({}), defaults, 'an empty table')
 
@@ -35,6 +42,7 @@ H.after_startup(function()
     confirm = false,
     budget = 2,
     ui = { size = 0.8, border = 'single' },
+    build_timeout = 300,
   }, 'yours, one spec root as a list')
   H.eq(notes.list, {}, 'and no notes')
   H.eq(resolve({ spec = { 'a', { 'o/r' } } }).spec, { 'a', { 'o/r' } }, 'roots and inline specs')
