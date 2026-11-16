@@ -151,6 +151,12 @@ function M.load_team(name)
   return require('team.loader').load_team(t, 'load_team()')
 end
 
+--- Open the window on a view: 'teams' (default), 'profile' or 'log'.
+---@param view? 'teams'|'profile'|'log'
+function M.open(view)
+  require('team.ui').open(view)
+end
+
 --- Update plugins with vim.pack: teams stand for their members; none means every plugin.
 --- `force` applies them at once, without vim.pack's confirmation buffer.
 ---@param names? string[]

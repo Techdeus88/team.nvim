@@ -127,14 +127,14 @@ H.after_startup(function()
   local function count(text)
     return #vim.tbl_filter(function(n)
       return n.msg:find(text, 1, true) ~= nil
-    end, H.notes)
+    end, H.problems())
   end
   H.eq(count('config boom'), 1, 'one message per failure')
   H.eq(count('`ghost` is not installed'), 1, 'the missing plugin is reported once at install')
-  H.eq(count('team.nvim: `ghost` did not load'), 1, 'and once when it could not load')
+  H.eq(count('`ghost` did not load: '), 1, 'and once when it could not load')
   H.ok(H.noted('team `core` failed: `broken.nvim` did not load'), 'a failed team is reported')
   H.ok(
-    vim.iter(H.notes):all(function(n) ---@param n { level: integer }
+    vim.iter(H.problems()):all(function(n) ---@param n { level: integer }
       return n.level == vim.log.levels.ERROR
     end),
     'all of them as errors'

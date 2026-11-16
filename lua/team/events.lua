@@ -54,7 +54,35 @@ function M.on(name, fn, group)
   })
 end
 
---- Record a message, tell listeners, and show warnings and errors.
+---@type { msg: string, level: integer }[] warnings and errors of this tick, not shown yet
+local pending = {}
+
+--- Show this tick's warnings and errors as one short message: one line, so it never
+--- stops you at "Press ENTER". The whole text is in the log, :Team log.
+local function flush()
+  local list = pending
+  pending = {}
+  if #list == 0 then
+    return
+  end
+  local level, firsts = vim.log.levels.WARN, {}
+  for _, m in ipairs(list) do
+    level = math.max(level, m.level)
+    firsts[#firsts + 1] = m.msg:match('^[^\n]*')
+  end
+  local msg = #list == 1 and firsts[1] or ('%d problems: %s'):format(#list, table.concat(firsts, '; '))
+  -- Clear of the ruler and showcmd, which a float without a statusline puts on this line.
+  local room = math.min(vim.v.echospace > 0 and vim.v.echospace or vim.o.columns, vim.o.columns - 30)
+  msg = 'team.nvim: ' .. msg
+  if #list > 1 or vim.fn.strdisplaywidth(msg) > room or list[1].msg:find('\n') then
+    local hint = ' (:Team log)'
+    msg = vim.fn.strdisplaywidth(msg) + #hint > room and vim.fn.strcharpart(msg, 0, room - #hint - 1) .. '…' .. hint
+      or msg .. hint
+  end
+  vim.notify(msg, level)
+end
+
+--- Record a message, tell listeners, and show warnings and errors, once a tick.
 ---@param msg string
 ---@param level? integer default INFO
 ---@param about? { plugin?: string, team?: string }
@@ -63,7 +91,10 @@ function M.report(msg, level, about)
   local e = log.add(level, msg, about)
   M.emit(M.names.Report, { msg = msg, level = level, plugin = e.plugin, team = e.team })
   if level >= vim.log.levels.WARN then
-    vim.notify('team.nvim: ' .. msg, level)
+    pending[#pending + 1] = { msg = msg, level = level }
+    if #pending == 1 then
+      vim.schedule(flush)
+    end
   end
 end
 

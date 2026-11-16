@@ -1,6 +1,4 @@
--- Plain buffers for :Team, :Team profile and :Team log, until the window of milestone 5.
--- Each is a scratch buffer named team://<view>, opened in a split at the bottom, or
--- refreshed where it already shows. `q` closes it.
+-- The text of the window's Profile and Log views, and load costs.
 
 local log = require('team.log')
 local state = require('team.state')
@@ -37,32 +35,8 @@ function M.team_cost(t)
   return total
 end
 
----@return string[]
-function M.status()
-  local lines = { 'team.nvim', '' }
-  for _, name in ipairs(state.team_order) do
-    local t = state.teams[name]
-    local moment = t.when and (t.when .. (t.pulled_by and (' (pulled by ' .. t.pulled_by .. ')') or '')) or '-'
-    lines[#lines + 1] = ('%s  %s  %s  %d members'):format(t.name, t.state, moment, #t.members)
-    for _, m in ipairs(t.members) do
-      local p = state.plugins[m]
-      local why = p.state == 'loaded' and p.reason or p.err or p.disabled_by or ''
-      lines[#lines + 1] = ('  %-28s %-9s %-11s %s'):format(p.name, p.state, p.in_batch and 'batch' or p.load, why)
-    end
-    lines[#lines + 1] = ''
-  end
-  local loose = state.list(function(p)
-    return p.team == nil
-  end)
-  if #loose > 0 then
-    lines[#lines + 1] = 'in no team'
-    for _, p in ipairs(loose) do
-      lines[#lines + 1] = ('  %-28s %-9s %-11s %s'):format(p.name, p.state, p.load, p.reason or p.err or '')
-    end
-  end
-  return lines
-end
-
+--- Load costs as tables: setup's steps, then teams and plugins, slowest first. Columns
+--- are as wide as what is in them, numbers in ms, so a narrow window keeps the numbers.
 ---@return string[]
 function M.profile()
   local times = state.times
@@ -77,36 +51,48 @@ function M.profile()
       ms(times.now)
     ),
     '',
-    'teams, slowest first',
   }
+  local tw = 4
+  for _, name in ipairs(state.team_order) do
+    tw = math.max(tw, #name)
+  end
+  tw = math.min(tw, 20)
   local teams = vim.tbl_map(function(n)
     return state.teams[n]
   end, state.team_order)
   table.sort(teams, function(a, b)
     return M.team_cost(a) > M.team_cost(b)
   end)
+  local team_row = '  %-' .. tw .. 's  %-9s %8s %8s'
+  lines[#lines + 1] = team_row:format('team', 'state', 'ms', 'hooks')
   for _, t in ipairs(teams) do
     local hooks = 0
     for _, h in pairs(t.hooks or {}) do
       hooks = hooks + h
     end
-    lines[#lines + 1] = ('  %-20s %-9s %12s  hooks %s'):format(t.name, t.state, ms(M.team_cost(t)), ms(hooks))
+    lines[#lines + 1] = team_row:format(t.name, t.state, ('%.2f'):format(M.team_cost(t)), ('%.2f'):format(hooks))
   end
   lines[#lines + 1] = ''
-  lines[#lines + 1] = 'plugins, slowest first'
   local loaded = state.list(function(p)
     return p.time ~= nil
   end)
   table.sort(loaded, function(a, b)
     return M.cost(a) > M.cost(b)
   end)
+  local pw = 6
   for _, p in ipairs(loaded) do
-    lines[#lines + 1] = ('  %-28s %-12s %12s  packadd %s  config %s  %s'):format(
+    pw = math.max(pw, #p.name)
+  end
+  pw = math.min(pw, 28)
+  local plugin_row = '  %-' .. pw .. 's  %-' .. tw .. 's %8s %8s %8s  %s'
+  lines[#lines + 1] = plugin_row:format('plugin', 'team', 'ms', 'packadd', 'config', 'why')
+  for _, p in ipairs(loaded) do
+    lines[#lines + 1] = plugin_row:format(
       p.name,
       p.team or '-',
-      ms(M.cost(p)),
-      ms(p.time.packadd),
-      ms(p.time.config),
+      ('%.2f'):format(M.cost(p)),
+      ('%.2f'):format(p.time.packadd or 0),
+      ('%.2f'):format(p.time.config or 0),
       p.reason or ''
     )
   end
@@ -121,33 +107,6 @@ function M.log()
     lines[#lines + 1] = ('%9.2f  %-5s  %s'):format(e.ms, level_names[e.level] or '?', msg)
   end
   return lines
-end
-
---- Show a view: refresh its buffer if it is open, else open it in a split at the bottom.
----@param name 'status'|'profile'|'log'
----@return integer buf
-function M.open(name)
-  local lines = M[name]()
-  local bufname = 'team://' .. name
-  local buf = vim.fn.bufnr(bufname)
-  if buf == -1 then
-    buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_name(buf, bufname)
-    vim.bo[buf].bufhidden = 'wipe'
-    vim.bo[buf].filetype = 'team' .. name
-    vim.keymap.set('n', 'q', '<Cmd>close<CR>', { buffer = buf, desc = 'team.nvim: close' })
-  end
-  vim.bo[buf].modifiable = true
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].modifiable = false
-  local win = vim.fn.bufwinid(buf)
-  if win == -1 then
-    vim.cmd(('botright %dsplit'):format(math.min(#lines, math.floor(vim.o.lines / 2))))
-    vim.api.nvim_win_set_buf(0, buf)
-  else
-    vim.api.nvim_set_current_win(win)
-  end
-  return buf
 end
 
 return M

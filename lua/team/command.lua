@@ -1,15 +1,15 @@
 -- :Team and its subcommands, with completion. plugin/team.lua defines the command;
 -- everything here waits for setup().
 --
---   :Team                      the status of every team and plugin
+--   :Team                      the window: every team and plugin
 --   :Team load {name}...       load teams or plugins now, with what they need
 --   :Team update[!] [{name}...] vim.pack.update(); ! applies without confirming
 --                              (`:Team! update` works too, for every subcommand with a bang)
 --   :Team enable {team}        turn a team on for this session
 --   :Team disable {team}       turn a team off for this session
 --   :Team clean[!]             delete plugins on disk that no spec names; ! without asking
---   :Team profile              load costs, slowest first
---   :Team log                  everything team.nvim did and noticed
+--   :Team profile              the window on load costs, slowest first
+--   :Team log                  the window on everything team.nvim did and noticed
 
 local state = require('team.state')
 
@@ -69,10 +69,10 @@ M.subcommands = {
     check(require('team.ops').clean(bang))
   end,
   profile = function()
-    require('team.views').open('profile')
+    require('team.ui').open('profile')
   end,
   log = function()
-    require('team.views').open('log')
+    require('team.ui').open('log')
   end,
 }
 
@@ -85,7 +85,7 @@ function M.run(opts)
   local args = vim.deepcopy(opts.fargs)
   local sub = table.remove(args, 1)
   if not sub then
-    require('team.views').open('status')
+    require('team.ui').open('teams')
     return
   end
   -- `:Team update!` reads as it should: the bang on the subcommand is the command's.

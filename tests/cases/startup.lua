@@ -185,6 +185,6 @@ H.after_startup(function()
   for _, k in ipairs({ 'specs', 'pack', 'init', 'now', 'setup' }) do
     H.ok(state.times[k] >= 0, 'setup step timed: ' .. k)
   end
-  H.eq(#H.notes, 1, 'one warning')
+  H.eq(#H.problems(), 1, 'one warning')
   H.ok(H.noted('team `early` loads at `now`, not `later`, because team `ui` needs it'), 'about the pull')
 end)

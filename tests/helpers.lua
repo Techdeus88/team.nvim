@@ -108,16 +108,26 @@ function H.ok(cond, what)
   end
 end
 
---- Whether any vim.notify message matches the Lua `pattern`.
+--- Whether anything team.nvim reported (its log, every level) or vim.notify showed
+--- matches the Lua `pattern`.
 ---@param pattern string
 ---@return boolean
 function H.noted(pattern)
-  for _, n in ipairs(H.notes) do
+  local ok, log = pcall(require, 'team.log')
+  for _, n in ipairs(vim.list_extend(vim.list_slice(H.notes), ok and log.entries or {})) do
     if n.msg:find(pattern) then
       return true
     end
   end
   return false
+end
+
+--- team.nvim's warnings and errors this session, from its log.
+---@return team.LogEntry[]
+function H.problems()
+  return vim.tbl_filter(function(e)
+    return e.level >= vim.log.levels.WARN
+  end, require('team.log').entries)
 end
 
 --- Read config the way setup() will: options, then teams and specs, then the graph.
@@ -202,7 +212,7 @@ function H.done(err)
   -- An error message from anywhere during the case fails it, so errors nobody checked
   -- for (a callback that raised, a bad autocmd) cannot pass unseen.
   if not err and vim.v.errmsg ~= '' then
-    err = 'error message during the case: ' .. vim.v.errmsg
+    err = 'error message during the case: ' .. vim.v.errmsg .. '\n:messages\n' .. vim.fn.execute('messages')
   end
   if err then
     io.stderr:write(err, '\n', 'notes: ', vim.inspect(H.notes), '\n')

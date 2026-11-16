@@ -145,9 +145,10 @@ setup(opts)
 | `team/log.lua` | In-memory log ring, read by UI and `:Team log`. |
 | `team/command.lua` | `:Team` with subcommands and completion. |
 | `team/ops.lua` | After `setup()`: update, enable and disable a team for the session, clean strays. |
-| `team/views.lua` | The status, profile and log buffers. |
+| `team/views.lua` | The text of the Profile and Log views, and load costs. |
 | `team/health.lua` | `:checkhealth team`. |
-| `team/ui/` | Window, render, actions (milestone 5). |
+| `team/ui/init.lua` | The window: float, keys, actions, live redraws, cleanup (section 5.1). |
+| `team/ui/render.lua` | What the window shows: lines, highlights and the item on each line. Pure apart from reading state. |
 | `plugin/team.lua` | Defines `:Team` only. Nothing else runs before `setup()`. |
 
 Why `vim.pack.add` with a no-op `load`: it installs missing plugins and registers every spec in one call (so `vim.pack.get()`, `:packupdate` and the lockfile see all of them) without putting anything on the runtimepath. team.nvim then runs `:packadd` itself when each plugin's time comes, and sources `after/plugin` when loading after `VimEnter`, as `vim.pack` does. The `load` callback is also how team.nvim learns each plugin's path; a plugin it is never called for is `missing`, with the reason taken from `vim.pack`'s error.
@@ -160,9 +161,9 @@ Why `vim.pack.add` with a no-op `load`: it installs missing plugins and register
 - **Failures**: an error in `opts`, `config`, `setup()` or `after`, a missing plugin, a failed dependency, or a needed team that did not load fails the plugin, reported once with the reason (`TeamPluginFail`). A failed batch member fails its team (reported once) and its `post` does not run. An error in a team hook or a plugin's `init` is reported and loading carries on.
 - **Team done**: once its batch (or, with no batch, every enabled member) has loaded, the team is `loaded`, then `post` runs, then `TeamLoad` fires with the team's total ms. A team is `loaded` before `post` runs so a `post` that loads another member does not run twice.
 - **Events** (`User` autocmds, see `lua/team/events.lua` for each one's data): `TeamInstall`, `TeamLoadPre`, `TeamPluginLoadPre`, `TeamPluginLoad`, `TeamPluginFail`, `TeamLoad`, `TeamState`, `TeamSetup`, `TeamLater`, `TeamReport`.
-- **Messages**: everything goes to the log; warnings and errors also go to `vim.notify`, prefixed `team.nvim:`. The window (milestone 5) can take that over.
+- **Messages**: everything goes to the log, whole. Warnings and errors also reach `vim.notify`, prefixed `team.nvim:`, once a tick and short: one problem as its first line; several as `N problems: …`; either cut to stay clear of the ruler, with `(:Team log)` when anything was cut. So a failure never stops you at "Press ENTER". The whole text is in `:Team log`, `:checkhealth team` and the plugin's row. A team failing because a member did is logged, not shown again.
 - **Lua API**: `setup(opts)`, `get(name)`, `teams()`, `load(name)`, `load_team(name)`, `now(fn)`, `later(fn)`.
-- **Options** `confirm` (default `true`): passed to `vim.pack.add`, which asks before installing. `budget` (default `5`): ms of `later` loading per event-loop tick.
+- **Options** `confirm` (default `true`): passed to `vim.pack.add`, which asks before installing. `budget` (default `5`): ms of `later` loading per event-loop tick. `ui = { size = 0.8, border = nil }`: the window's share of the editor (0.3 to 1) and border (default: your `'winborder'`, else rounded).
 
 ### 4.2 The `later` queue and triggers
 
@@ -179,18 +180,26 @@ Why `vim.pack.add` with a no-op `load`: it installs missing plugins and register
 
 | Command | Effect |
 | --- | --- |
-| `:Team` | The status of every team and plugin: state, moment, why each loaded or is off. A plain buffer until the window of milestone 5. |
+| `:Team` | The window, on its Teams view (5.1). |
 | `:Team load {team\|plugin}...` | Load now. For a team: its `deps`, then its batch, then members not yet loaded. A name that is both a team and a plugin loads the team, and says so. Completes teams and plugins not loaded. |
 | `:Team update[!] [{team\|plugin}...]` | `vim.pack.update()` for those plugins, a team standing for its installed members; every installed plugin when none. `!` applies at once; without it `vim.pack` shows its confirmation buffer (`:write` applies). A plugin updated after it loaded warns to restart Neovim, since Lua modules cannot be unloaded. |
 | `:Team enable {team}` | For this session: install what the team and the dependencies only it needs lack, run its `init` and its members' (once a session), arm their triggers, and queue the members whose moment has passed. |
 | `:Team disable {team}` | For this session: members that have not loaded never will, their stubs go, and teams that need it cannot load. Members already loaded stay, with a warning. Persistent disabling stays in config. |
 | `:Team clean[!]` | Plugins `vim.pack` keeps that no spec names (a disabled plugin is still named, so it stays), deleted with `vim.pack.del()` after asking; `!` does not ask. |
-| `:Team profile` | `setup()` steps, then teams and plugins by load cost, slowest first: `packadd` and config apart, and why each loaded. |
-| `:Team log` | Everything team.nvim did and noticed, with ms since `setup()` started and the level. |
+| `:Team profile` | The window on Profile: `setup()` steps, then a table of teams and one of plugins by load cost, slowest first (`ms`, `packadd`, `config`, why). |
+| `:Team log` | The window on Log: everything team.nvim did and noticed, with ms since `setup()` started and the level, newest at the cursor. |
 
 `:checkhealth team`: Neovim 0.12+, `git`, whether `setup()` ran, every warning and error reported this session, plugins by state, the lockfile, and plugins on disk in no spec. Clean for a config with nothing wrong.
 
-The views (`:Team`, `:Team profile`, `:Team log`) are scratch buffers named `team://<view>`, opened in a split at the bottom or refreshed where they already show; `q` closes them.
+### 5.1 The window
+
+One float over the editor at `ui.size` (default 80%, at least 60 x 12 cells when the editor has room), centred with its border, titled ` team.nvim `, with ` ? help · q close ` in the bottom border. Inside: a summary line (teams, plugins loaded, waiting, failed, off, and `setup` ms; narrow windows drop the team and waiting counts), the view tabs (`1 Teams`, `2 Profile`, `3 Log`), a rule, then the view.
+
+- **Teams**: a row per team with members: fold marker, name, state, when it loads (`now`, `later`, its triggers, `after <team>`, `(for <team>)` when pulled, why it is off), loaded/members, total ms. Under it a row per member: name, state, how it loads (`team` for a batch member, plus what it adds, like `team, :DiffviewOpen`; else its own `load` or triggers), why it loaded or its error, ms. Team and plugin columns share their edges; counts sit in one column. `<CR>` on a plugin opens its details: src, path, version, team, load, triggers, deps, needed by, reason, error, why it is off, packadd and config times, the file that declares it. Narrow windows drop the how column (under 76 cells), then the why column (under 58); every row is cut with `…` at the window's width, highlights with it.
+- **Keys**: `<CR>`/`o` fold a team or open a plugin's details, `l` load, `u` update (`U` everything), `e` turn its team on or off for the session, `go` open the plugin's folder in a tab of its own (with `:tcd`), `gf` open the file that declares it, `zM`/`zR` fold/open every team, `]]`/`[[` next/previous team, `<Tab>`/`<S-Tab>` and `1`-`3` views, `r` redraw, `?` help, `q`/`<Esc>` close. Leaving the window closes it.
+- **Live**: while open it redraws on `TeamState`, `TeamLoad`, `TeamReport` and `TeamLater`, at most once per 30 ms whatever the burst (one timer at a time), and on `VimResized`. The cursor stays on the team or plugin it was on; Log opens at its newest entry. Folds and open details are kept across opens in a session. Closing removes every autocmd and the timer.
+- **Colors** come from your colorscheme through `default` links you can override (`TeamTeam` Title, `TeamLoaded` DiagnosticOk, `TeamWaiting` Comment, `TeamLoading` DiagnosticInfo, `TeamFailed` DiagnosticError, `TeamMissing` DiagnosticWarn, `TeamDisabled` NonText, `TeamMuted` Comment, `TeamTime` Number, `TeamKey` Special, `TeamTab` Comment, `TeamTabActive` TabLineSel, `TeamFold` NonText, `TeamRule` FloatBorder, `TeamDep` Comment). `TeamPlugin` is set to nothing, so plugin names take the float's colors; a link to Normal would paint Normal's background inside it. Neovim keeps `default` links through `:colorscheme`.
+- Lua: `require('team').open(view)`.
 
 Lua API for the same: `update(names, force)`, `enable_team(name)`, `disable_team(name)`.
 
@@ -263,7 +272,7 @@ Each milestone ends with stylua, luacheck, lua-language-server and the tests gre
 | 2 | `pack`, `loader`, `state`, `events`, `log`, `setup()`: register + install via `vim.pack.add`, `now` loading, `opts`/`config`/`after`/`init`, team hooks, timing, events, failures (4.1). | Cases `startup` (two sessions over the same dirs), `failures`, `api`, `args`: a real headless start loads `now` teams from local repos in order, hooks run once, events fire. |
 | 3 | `schedule` + `triggers`: `later` queue with `budget`, `now()`/`later()`, `event`, `ft`, `cmd`, `keys` with replay, `after_team` on teams and plugins, `order` on teams and plugins, batches on triggers, team `deps` pulling across phases (4.2). | Cases `triggers`, `later`, `after_team`, `pull`, and `order` extended. |
 | 4 | `:Team` commands, `ops`, `views`, `health` (section 5). | Cases `command`, `update`, `enable`, `clean` (two sessions), `health` (clean, then with problems), `nosetup`. |
-| 5 | UI: teams as collapsible sections with status and summed time, plugin rows, actions (load, update, enable/disable, open dir), help, throttled live render. | Visual check at narrow and wide sizes, light and dark. |
+| 5 | UI (5.1): the window with Teams, Profile and Log views, keys and actions, throttled live redraws; one-line messages (4.1). | Case `ui` (size, rows, folds, details, keys, live redraw count and timers, narrow and wide widths in every view, highlights, cleanup), `messages`, `command` updated; visual check in a real terminal through tmux at 140x40 and 62x30, dark and light, Teams with details, Profile and Log. |
 | 6 | `build` hooks on `PackChanged`, `:Team clean`, first start deferred to `UIEnter` with the window showing installs (cinch's behavior, no `defer` option). | Fresh-machine case: lockfile present, nothing on disk, window shows installs. |
 | 7 | README, `doc/team.txt`, migration notes from cinch (`group` to `team`, `groups` setup to `teams`). | `:h team` works; README example runs as is. |
 

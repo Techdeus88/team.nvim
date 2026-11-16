@@ -9,6 +9,7 @@ local M = {}
 ---@field spec? string|(string|table)[] plugin specs: module paths, folders, or specs
 ---@field confirm? boolean ask before installing; default true
 ---@field budget? number ms of `later` loading per event-loop tick; default 5
+---@field ui? team.UiOpts the window
 
 ---@class team.Config
 ---@field teams table<string, team.TeamFields>
@@ -16,10 +17,15 @@ local M = {}
 ---@field spec (string|table)[]
 ---@field confirm boolean
 ---@field budget number
+---@field ui team.UiOpts
+
+---@class team.UiOpts
+---@field size? number share of the editor, 0.3 to 1; default 0.8
+---@field border? string|string[] default: your 'winborder', else rounded
 
 ---@return team.Config
 function M.defaults()
-  return { teams = {}, teams_dir = 'teams', spec = { 'plugins' }, confirm = true, budget = 5 }
+  return { teams = {}, teams_dir = 'teams', spec = { 'plugins' }, confirm = true, budget = 5, ui = { size = 0.8 } }
 end
 
 ---@type table<string, { [1]: (fun(v: any): boolean), [2]: string }>
@@ -47,6 +53,14 @@ local checks = {
       return type(v) == 'number' and v > 0
     end,
     'a number of ms above 0',
+  },
+  ui = {
+    function(v)
+      return type(v) == 'table'
+        and (v.size == nil or (type(v.size) == 'number' and v.size >= 0.3 and v.size <= 1))
+        and (v.border == nil or type(v.border) == 'string' or type(v.border) == 'table')
+    end,
+    '{ size = 0.3 to 1, border = a string or list }',
   },
   spec = {
     function(v)
@@ -76,7 +90,7 @@ function M.resolve(opts, origin, notes)
     if not check then
       unknown[#unknown + 1] = tostring(k)
     elseif check[1](v) then
-      res[k] = v
+      res[k] = k == 'ui' and vim.tbl_extend('force', res.ui, v) or v
     else
       local msg = 'setup(): `%s` should be %s, got %s; using the default'
       notes:warn(origin, msg:format(k, check[2], type(v)))

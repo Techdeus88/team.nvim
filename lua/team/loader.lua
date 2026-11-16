@@ -148,7 +148,8 @@ function M.settle(t)
     end)
     local err = ('`%s` did not load'):format(name)
     state.set_team(t, 'failed', err)
-    events.report(('team `%s` failed: %s'):format(t.name, err), levels.ERROR, { team = t.name })
+    -- Its member's failure was the error; this only records what it did to the team.
+    events.report(('team `%s` failed: %s'):format(t.name, err), levels.INFO, { team = t.name })
   elseif all and #list > 0 then
     -- Loaded before `post` runs, so a `post` that loads another member finds it settled.
     state.set_team(t, 'loaded')

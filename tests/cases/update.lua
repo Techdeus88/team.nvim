@@ -46,7 +46,7 @@ H.after_startup(function()
   H.wait(function()
     return head('delta') == new_delta
   end, 'delta updated once confirmed')
-  H.silent({ list = H.notes }, '`delta` was updated', 'a plugin that has not loaded needs no restart')
+  H.silent({ list = H.problems() }, '`delta` was updated', 'a plugin that has not loaded needs no restart')
 
   local ok, err = pcall(vim.cmd --[[@as function]], 'Team update nope')
   vim.v.errmsg = ''
