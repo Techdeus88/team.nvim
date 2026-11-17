@@ -1,0 +1,454 @@
+*team.txt*    A plugin manager on vim.pack where plugins come in teams
+
+==============================================================================
+CONTENTS                                                *team* *team-contents*
+
+  1. Introduction ...................................... |team-intro|
+  2. Install ........................................... |team-install|
+  3. Setup ............................................. |team-setup|
+  4. Teams ............................................. |team-teams|
+     Inheritance ....................................... |team-inherit|
+     The batch ......................................... |team-batch|
+  5. Plugin specs ...................................... |team-spec|
+  6. When things load .................................. |team-load|
+     Triggers .......................................... |team-triggers|
+  7. Builds ............................................ |team-build|
+  8. The first start ................................... |team-first-start|
+  9. Commands .......................................... |team-commands|
+ 10. The window ........................................ |team-window|
+ 11. Health ............................................ |team-health|
+ 12. Events ............................................ |team-events|
+ 13. Lua API ........................................... |team-api|
+ 14. Highlights ........................................ |team-highlights|
+ 15. Coming from cinch.nvim ............................ |team-cinch|
+
+==============================================================================
+1. INTRODUCTION                                                   *team-intro*
+
+A team is a named group of plugins that share a way of loading: at startup,
+once the UI is up, on an event, a filetype, a command or a key, or right
+after another team. You load, update, turn off and profile a team as one
+thing.
+
+|vim.pack| keeps the disk: installs, the lockfile, updates and deletes.
+team.nvim decides when each plugin loads, runs builds, times everything, and
+shows it in one window.
+
+Requirements: Neovim 0.12 or newer, and `git` on your `PATH`.
+
+==============================================================================
+2. INSTALL                                                      *team-install*
+
+At the top of your `init.lua`: >lua
+
+    vim.pack.add({ 'https://github.com/Techdeus88/team.nvim' })
+<
+On a new machine that call installs every plugin your lockfile lists while
+`init.lua` runs: |vim.pack.add()| does that on its first call of a session.
+To let team.nvim hold the first start for its window, clone it instead: >lua
+
+    local path = vim.fn.stdpath('data') .. '/site/pack/core/opt/team.nvim'
+    if not vim.uv.fs_stat(path) then
+      vim.fn.system({ 'git', 'clone', '--filter=blob:none',
+        'https://github.com/Techdeus88/team.nvim', path })
+    end
+    vim.cmd.packadd('team.nvim')
+<
+==============================================================================
+3. SETUP                                                          *team-setup*
+
+                                                              *team.setup()*
+The options and their defaults: >lua
+
+    require('team').setup({
+      -- teams by name, see |team-teams|
+      teams = {},
+      -- team files: a module path under lua/ on the runtimepath, a
+      -- folder, or false
+      teams_dir = 'teams',
+      -- plugin specs: module paths, folders, or specs
+      spec = { 'plugins' },
+      -- vim.pack asks before installing
+      confirm = true,
+      -- ms of `later` loading per event-loop tick
+      budget = 5,
+      -- seconds a shell or async function build may take
+      build_timeout = 300,
+      -- the window: share of the editor from 0.3 to 1, and its border;
+      -- the border defaults to 'winborder', else rounded
+      ui = { size = 0.8, border = nil },
+    })
+<
+An option of the wrong type warns and keeps its default. An unknown one warns
+and is ignored. `setup()` runs once a session: a second call warns and
+changes nothing.
+
+==============================================================================
+4. TEAMS                                                          *team-teams*
+
+A team has a strategy and a list of plugins.
+
+`plugins`         The team's plugin specs, in order.
+`load`            'now', 'later', 'now_if_args' or 'trigger'. See
+                  |team-load|.
+`event`, `ft`,      Triggers, as on a plugin. See |team-triggers|.
+`cmd`, `keys`
+`after_team`      A team or a list of them. The team loads right after any
+                  of them has. It is a trigger and nothing more: another
+                  trigger can load the team first. A name nothing defines,
+                  or the team itself, warns and is ignored.
+`deps`            Teams this one needs. Before any member loads, the batch
+                  of each has loaded. A team that needs a later one pulls it
+                  earlier, and says so. A team named here needs a `load` or
+                  a trigger of its own. A cycle warns and drops the link
+                  that closes it.
+`order`           A number. Teams sort by it, lower first. Teams without one
+                  come after.
+`enabled`,        `false`, or a function of the team that returns `false`,
+`cond`            turns the whole team off: nothing in it installs or loads.
+`init`            `function(team)`, at every startup, before anything loads.
+`pre`             `function(team)`, once, right before the first member
+                  loads.
+`post`            `function(team)`, once, after the team's batch has loaded.
+
+A team comes from one of three places, and one name is one team.
+Definitions merge field by field, `setup()` first, then files sorted by path.
+The later value wins, and `deps` add up. >lua
+
+    -- 1. setup()
+    require('team').setup({ teams = { core = {
+      load = 'now', plugins = { 'nvim-lua/plenary.nvim' } } } })
+
+    -- 2. lua/teams/git.lua: the file is the team
+    return { event = 'BufReadPre', plugins = { 'lewis6991/gitsigns.nvim' } }
+
+    -- 3. lua/teams/lsp/*.lua: each file returns specs, and the folder is
+    --    the team lsp. lua/teams/lsp.lua holds its fields, if it exists.
+    return { 'neovim/nvim-lspconfig' }
+<
+                                                                *team-default*
+Plugins outside any team come from `spec`, by default `lua/plugins/`, and
+join the team `default`. Give `default` a strategy like any other team. A
+spec's own `team = 'git'` puts it in that team wherever it is written, and
+`team = false` keeps it out of every team. A plugin only ever named as a
+dependency is in no team unless its spec names one. A plugin that two teams
+list stays in the first one read, with a warning.
+
+------------------------------------------------------------------------------
+INHERITANCE                                                     *team-inherit*
+
+A member takes each of `load`, `event`, `ft`, `cmd`, `keys` and `after_team`
+from its team when it does not set that field itself. Its own `event`
+replaces the team's `event`. Its own `cmd` sits beside the team's `event`.
+`event = false` drops the team's event and keeps the rest.
+
+A team's `load` is explicit: in a team with `load = 'later'`, a member's
+trigger is ignored, with a warning. A member with its own `load` other than
+'trigger' takes none of the team's triggers.
+
+------------------------------------------------------------------------------
+THE BATCH                                                         *team-batch*
+
+A team's batch is the members that load at the team's moment: those that set
+no `load` of their own and took the team's `load` or one of its triggers.
+The batch loads together, in order, each member after its deps. `post` runs
+once the batch has loaded, so a member on a schedule of its own never holds
+it back. A team with no `load` and no trigger has no batch: its members load
+their own way, and its `post` runs once every member has.
+
+Team states: `pending`, `partial` when some members have loaded, `loaded`
+once its batch has, `failed` when a batch member did, and `disabled`.
+
+==============================================================================
+5. PLUGIN SPECS                                                    *team-spec*
+
+The fields are cinch.nvim's, with the same meanings. `module` is accepted and
+does nothing: `require()` does not load plugins here.
+
+`[1]`, `src`        Where it comes from. 'owner/repo' is a GitHub repo.
+`name`            Its name, by default the last part of `src`, as
+                  |vim.pack| names it.
+`version`         A branch, tag, commit or |vim.version.range()|. A string
+                  like '^1.2' becomes a range.
+`commit`, `tag`,    Become `version`. `commit` beats `tag`, which beats
+`branch`          `version`, which beats `branch`.
+`team`            Its team, or `false` for none. cinch's `group` reads as
+                  `team`.
+`load`, `lazy`      When it loads. `lazy = false` is 'now' and `lazy = true`
+                  is 'trigger'.
+`event`           'BufReadPre', or 'User MyEvent' for a pattern. One or a
+                  list.
+`ft`, `cmd`         A filetype or command, or a list of them.
+`keys`            'lhs', or { 'lhs', rhs, mode = 'n', desc = '...' }, or a
+                  list of them.
+`after_team`      Load right after a team's batch.
+`order`           Its place among its team's members, lower first.
+`deps`            Plugins that load first. 'owner/repo' or a table is a
+                  spec; a bare name like 'plenary.nvim' names a spec written
+                  elsewhere. `dependencies` works too.
+`enabled`, `cond`   `false`, or a function that returns `false`, turns it off.
+                  A plugin only another needs turns off once nothing that is
+                  on needs it.
+`init`            `function(plugin)`, at every startup, before it loads.
+`opts`            A table, or `function(plugin, opts)` that returns one or
+                  fills in the one it gets.
+`main`            The module whose `setup()` gets `opts`. Guessed from the
+                  name, or the plugin's only module.
+`config`          `function(plugin, opts)` in place of `setup(opts)`.
+                  `config = true` calls `setup()` with nothing.
+`after`           `function(plugin)`, after `config`.
+`build`           After an install or an update. See |team-build|.
+
+Specs of one plugin merge in read order. A later field replaces an earlier
+one, `deps` keep every entry, and every `opts` is kept: tables and functions
+that take no `opts` build the base, then functions that take `opts` extend
+it. A spec nested in `deps` applies over the plugin's own spec. One that only
+names the plugin changes nothing, so a fork's `src` stays.
+
+A mistake in a spec warns with the file it is in, and the spec goes on
+without it.
+
+==============================================================================
+6. WHEN THINGS LOAD                                                *team-load*
+
+Loading goes by phase, then by order.
+
+'now'           While `init.lua` runs.
+'now_if_args'   'now' when Neovim starts with a file, 'later' when not.
+'later'         Once the UI is up, in a queue that gives the event loop back
+                after each tick that used `budget` ms.
+'trigger'       When a trigger fires. With none, when something asks: a
+                plugin that depends on it, |:Team| load, or
+                |team.load()|.
+
+When nothing sets `load`, a plugin with a trigger is 'trigger' and the rest
+are 'later'. A plugin only another needs loads with it. lazy.nvim's
+'VeryLazy' means 'later', and beside other events it is a deadline.
+
+Inside a phase, teams go after the teams they need, then by `order`, then in
+read order. Members go by their own `order`, then as written, each after its
+deps.
+
+While `init.lua` runs, team.nvim loads with `:packadd!`, see |:packadd|, as
+|vim.pack| does, and Neovim's startup then sources each plugin's plugin/
+files once. A 'now'
+plugin's `config` therefore runs before its own plugin/ files. After startup
+a load sources plugin/ and after/plugin/ before `config`.
+
+One plugin loads in this order: the batches of the teams its team needs, its
+team's `pre`, its deps, |:packadd|, `opts`, `config` or `setup(opts)`,
+`after`. An error in any of them fails the plugin, says why, and fails what
+depends on it. An error in a hook or an `init` is reported and loading goes
+on.
+
+------------------------------------------------------------------------------
+TRIGGERS                                                       *team-triggers*
+
+One watch serves every plugin behind the same event, filetype, command or
+key. When it fires, those plugins load in order, then team.nvim replays what
+fired, so the plugin sees it:
+
+Events      Only the autocmds the plugin just added run. Yours do not run
+            twice, and a Vimscript autocmd keeps its s: functions.
+Filetypes   The same, and the plugin's ftplugin, indent and syntax files
+            apply to every buffer of that filetype.
+Commands    The stub takes any range, bang and arguments, then runs the
+            command as typed. Completing it loads the plugin and asks the
+            real command. A command something else defined first is left
+            alone, with a warning.
+Keys        Fed again with their register and count, and in
+            operator-pending mode with the operator. A key the spec maps is
+            mapped once the plugin has loaded. A mapping of yours that a
+            stub replaced comes back.
+
+==============================================================================
+7. BUILDS                                                         *team-build*
+
+`build` runs after |vim.pack| installs or updates the plugin.
+
+'make'                    A shell command, in the background, from the
+                          plugin's folder, with `sh -c`.
+':TSUpdate'               An Ex command. The plugin loads first.
+function(plugin)          With the plugin on the runtimepath but not
+                          loaded, so `require()` works.
+function(plugin, done)    The same, finished by `done(ok, msg)`.
+
+Ex commands and functions wait for |VimEnter|. A load that needs a plugin
+whose shell or function build runs waits, and runs when the build ends. A
+trigger that fired meanwhile replays then. A failed build lets the plugin
+load all the same. A build that fails, or that quitting cut off, runs again
+at the next startup. Shell and async builds time out after `build_timeout`
+seconds.
+
+==============================================================================
+8. THE FIRST START                                         *team-first-start*
+
+With plugins missing and a UI coming, nothing installs during `init.lua`. If
+the lockfile lists plugins that are not on disk, as on a new machine with
+your dotfiles, every plugin waits, since |vim.pack|'s first call would
+install those during `init.lua` anyway. Otherwise only the missing plugins
+wait. Headless Neovim installs during `init.lua`.
+
+Plugins that wait are `installing`, and their loads and triggers wait for
+them. On |UIEnter| the window opens and |vim.pack| installs them. Each row
+turns `installed` as its clone finishes, then what waited loads.
+
+==============================================================================
+9. COMMANDS                                                    *team-commands*
+                                                                       *:Team*
+
+:Team                      Open the window. |team-window|
+:Team load {name} ...      Load teams or plugins now, with what they need.
+:Team update[!] [{name} ...]
+                           |vim.pack.update()|. A team stands for its
+                           members, and no name means every plugin. With !
+                           the updates apply at once. Without it vim.pack
+                           shows what will change, and |:write| applies it.
+:Team enable {team}        Turn a team on for this session.
+:Team disable {team}       Turn a team off for this session. Members that
+                           have not loaded never will.
+:Team clean[!]             Delete plugins on disk that no spec names, after
+                           asking. ! does not ask.
+:Team profile              The window on load costs.
+:Team log                  The window on everything team.nvim did.
+
+`:Team! update` works as well as `:Team update!`. Every subcommand completes,
+and so do its arguments. A plugin updated after it has loaded warns you to
+restart: Lua modules cannot be unloaded.
+
+==============================================================================
+10. THE WINDOW                                                   *team-window*
+
+A float with three views, Teams, Profile and Log.
+
+Teams has a row per team: its state, when it loads, how many members have
+loaded, and their time. Under it is a row per plugin: its state, how it
+loads, why it loaded or what went wrong, and its time. Narrow windows drop
+columns, and every row is cut with an ellipsis at the window's width.
+
+<CR>, o         Fold a team, or show a plugin's details.
+l               Load the team or plugin under the cursor.
+u, U            Update it, or every plugin.
+e               Turn its team on or off for this session.
+go              Open the plugin's folder in a tab of its own.
+gf              Open the file that declares it.
+zM, zR          Fold every team, open every team.
+]], [[          Next and previous team.
+<Tab>, <S-Tab>  Next and previous view. 1, 2 and 3 go straight there.
+r               Redraw.
+?               Every key.
+q, <Esc>        Close.
+
+The window redraws as things change, at most every 30 ms, and keeps the
+cursor on its team or plugin. Leaving the window closes it.
+
+Warnings and errors show as one short line a tick, so nothing stops you at
+"Press ENTER". The whole text is in `:Team log` and |team-health|.
+
+==============================================================================
+11. HEALTH                                                       *team-health*
+
+`:checkhealth team` checks the Neovim version and `git`, says whether
+`setup()` ran, and lists every warning and error of the session, plugins by
+state, the lockfile, and plugins on disk that no spec names.
+
+==============================================================================
+12. EVENTS                                                       *team-events*
+
+Each event is a |User| autocmd with its details in `data`: >lua
+
+    vim.api.nvim_create_autocmd('User', {
+      pattern = 'TeamPluginLoad',
+      callback = function(ev)
+        print(ev.data.plugin, ev.data.ms)
+      end,
+    })
+<
+TeamInstall         `plugins` that |vim.pack| installed.
+TeamLoadPre         `team`, before its first member loads.
+TeamPluginLoadPre   `plugin`, `team`, `reason`, before it loads.
+TeamPluginLoad      `plugin`, `team`, `reason`, `ms`, once its config ran.
+TeamPluginFail      `plugin`, `team`, `err`.
+TeamLoad            `team`, `ms`, once its batch loaded and `post` ran.
+TeamBuild           `plugin`, `kind`, `ok`, `ms`, `err`.
+TeamState           `plugin` or `team`, and `state`.
+TeamSetup           `ms`, once `setup()` loaded the 'now' plugins.
+TeamLater           `ms`, once the 'later' queue first drained.
+TeamReport          `msg`, `level`, for everything team.nvim reports.
+
+==============================================================================
+13. LUA API                                                         *team-api*
+
+                                                                  *team.get()*
+team.get({name})          A plugin's record: `state`, `path`, `reason`,
+                          `time`, `err` and more. nil if no plugin has that
+                          name.
+                                                                *team.teams()*
+team.teams()              Every team's record, in load order.
+                                                                 *team.load()*
+team.load({name})         Load a plugin now. Returns true, false and why,
+                          or nil and what it waits for: an install or a
+                          build. It loads once that is done.
+                                                            *team.load_team()*
+team.load_team({name})    Load every member of a team now.
+                                                               *team.update()*
+team.update({names}, {force})
+                          |vim.pack.update()| for those teams or plugins.
+                                                          *team.enable_team()*
+team.enable_team({name})  Turn a team on for this session.
+                                                         *team.disable_team()*
+team.disable_team({name}) Turn a team off for this session.
+                                                                 *team.open()*
+team.open({view})         The window on 'teams', 'profile' or 'log'.
+                                                                  *team.now()*
+team.now({fn})            Run {fn} right after the 'now' plugins, or at once
+                          after `setup()`.
+                                                                *team.later()*
+team.later({fn})          Run {fn} in the 'later' queue.
+
+==============================================================================
+14. HIGHLIGHTS                                               *team-highlights*
+
+Each is a default link, so a group you set yourself stays yours.
+
+TeamTeam        Title           A team's name.
+TeamPlugin      nothing set     A plugin's name, in the window's colors.
+TeamDep         Comment         A plugin only another needs.
+TeamLoaded      DiagnosticOk    `loaded`.
+TeamWaiting     Comment         `installed`, `pending`.
+TeamLoading     DiagnosticInfo  `installing`, `building`, `partial`.
+TeamFailed      DiagnosticError `failed`, and errors.
+TeamMissing     DiagnosticWarn  `missing`, and warnings in the log.
+TeamDisabled    NonText         `disabled`.
+TeamMuted       Comment         How it loads, why, and table headings.
+TeamTime        Number          Times.
+TeamFold        NonText         The fold marks.
+TeamKey         Special         Keys in the help.
+TeamTab         Comment         A view's tab.
+TeamTabActive   TabLineSel      The current view's tab.
+TeamRule        FloatBorder     The rule under the tabs.
+
+==============================================================================
+15. COMING FROM CINCH.NVIM                                        *team-cinch*
+
+Plugin specs work unchanged. These change:
+
+- A spec's `group = 'git'` is `team = 'git'`. `group` still works, and says
+  so once.
+- `setup({ groups = { ... } })` is `setup({ teams = { ... } })`.
+- A group's `plugins` held names of specs written elsewhere. A team's
+  `plugins` holds the specs. To put a spec written elsewhere in a team, give
+  it `team = 'git'`.
+- A group's `dir = 'lsp'` is the folder lua/teams/lsp/.
+- A file returning `{ group = 'git', event = ..., { spec }, { spec } }` is
+  lua/teams/git.lua returning
+  `{ event = ..., plugins = { { spec }, { spec } } }`.
+- `cinch.now()` and `cinch.later()` are |team.now()| and |team.later()|.
+- `:Cinch` is |:Team|.
+- lazy.nvim's `priority`, which neither reads, is `order`, lower first.
+
+cinch's `defer`, `disable_runtime`, `module`, `cmd_prefix`, `self`,
+`features`, `cinch.time()` and its `messages`, `stats` and `updates` options
+have no counterpart.
+
+ vim:tw=78:ts=8:noet:ft=help:norl:

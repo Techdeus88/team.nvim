@@ -302,7 +302,7 @@ end
 local function plugin_row(screen, p, cols, width, view)
   local l = line():add('     '):add(p.name, p.dep_only and 'TeamDep' or 'TeamPlugin', cols.name):add('  ')
   local shown = p.building and 'building' or p.state
-  l:add(shown, M.state_hl[shown], 9)
+  l:add(shown, M.state_hl[shown], 10)
   if cols.how then
     l:add('  '):add(M.how(p), 'TeamMuted', cols.how)
   end
@@ -310,7 +310,7 @@ local function plugin_row(screen, p, cols, width, view)
   if cols.why then
     local why = p.err
       or (p.building and p.building ~= 'function' and p.building)
-      or (p.waiting and ('waiting for ' .. p.waiting))
+      or (p.waiting and p.waiting ~= p.name and ('waiting for ' .. p.waiting))
       or (p.build_err and ('build failed: ' .. p.build_err))
       or (p.state == 'loaded' and p.reason)
       or (p.disabled_by and M.off(p.disabled_by))
@@ -345,7 +345,7 @@ local function team_rows(screen, t, cols, width, view)
   end
   local folded = view.folded[t.name]
   local l = line():add(folded and ' ▸ ' or ' ▾ ', 'TeamFold'):add(t.name, 'TeamTeam', cols.name + 2):add('  ')
-  l:add(t.state, M.state_hl[t.state], 9):add('  ')
+  l:add(t.state, M.state_hl[t.state], 10):add('  ')
   -- The time field keeps its width when empty, so every count sits in one column.
   local right = ('%d/%d  %10s'):format(loaded, #t.members, loaded > 0 and ms(total) or '')
   l:add(moment(t), 'TeamMuted', math.max(width - l.width - #right - 3, 0))
