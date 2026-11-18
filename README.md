@@ -200,6 +200,9 @@ One watch serves every plugin behind the same event, filetype, command or key. W
 | `':TSUpdate'` | An Ex command. The plugin loads first |
 | `function(plugin)` | With the plugin on the runtimepath but not loaded, so `require()` works |
 | `function(plugin, done)` | The same, finished when it calls `done(ok, msg)` |
+| `vim.fn['mkdp#util#install']` | The same, a Vimscript function called with no arguments |
+
+A function is async only when it names a second parameter. A `function(...)` gets the plugin alone and ends when it returns.
 
 A load that needs a plugin whose shell or function build is running waits, and runs when the build ends. A trigger that fired meanwhile is replayed then. A build that fails, or that quitting cut off, runs again at the next startup. Shell and async builds time out after `build_timeout` seconds.
 

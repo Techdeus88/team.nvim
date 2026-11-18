@@ -2,7 +2,8 @@
 -- Builds after install (phase 1) and update (phase 2): a shell command in the plugin's
 -- folder, in the background, that a load waits for; a trigger that fires meanwhile is
 -- replayed once it has loaded; an Ex command, which loads the plugin first; a function with
--- the plugin on the runtimepath but not loaded; an async one, and one that times out. A
+-- the plugin on the runtimepath but not loaded; an async one, and one that times out; a
+-- Vimscript function by vim.fn, and a vararg Lua function, both run at once. A
 -- build that fails runs again at the next startup.
 local H = dofile(vim.env.TEAM_ROOT .. '/tests/helpers.lua')
 
@@ -72,6 +73,14 @@ require('team').setup({
       end,
     },
     { H.src('solo'), load = 'trigger', build = function(_, _) end },
+    { H.src('plainy'), load = 'trigger', build = vim.fn['plainy#build'] },
+    {
+      H.src('twomods'),
+      load = 'trigger',
+      build = function(...)
+        vim.g.vararg_build = { select('#', ...), (...).name }
+      end,
+    },
     { delta_src, load = 'trigger', build = 'echo updated > built.txt' },
   },
 })
@@ -143,6 +152,10 @@ H.after_startup(function()
     return vim.list_contains(built, 'solo install failed')
   end, 'the async build that never calls done', 5000)
   H.eq(team.get('solo').build_err, 'timed out after 3 s', 'times out')
+  H.eq(vim.g.plainy_built, 1, 'a vim.fn build runs once, with no arguments')
+  H.eq(team.get('plainy').build_err, nil, 'and succeeds')
+  H.eq(vim.g.vararg_build, { 1, 'twomods' }, 'a vararg function gets the plugin, not done')
+  H.ok(vim.list_contains(built, 'twomods install ok'), 'and finishes without a callback')
   H.eq(team.load('builder'), true, 'builder loads when asked')
   H.eq(vim.g.builder_plugin, 1, 'and its plugin/ runs then, once')
 end)

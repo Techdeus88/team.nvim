@@ -272,6 +272,11 @@ Keys        Fed again with their register and count, and in
 function(plugin)          With the plugin on the runtimepath but not
                           loaded, so `require()` works.
 function(plugin, done)    The same, finished by `done(ok, msg)`.
+vim.fn['x#build']         The same, a Vimscript function called with no
+                          arguments.
+
+A function is async only when it names a second parameter: a
+`function(...)` gets the plugin alone and ends when it returns.
 
 Ex commands and functions wait for |VimEnter|. A load that needs a plugin
 whose shell or function build runs waits, and runs when the build ends. A

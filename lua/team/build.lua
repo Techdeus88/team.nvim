@@ -4,6 +4,7 @@
 --   ':TSUpdate'          an Ex command: the plugin loads first
 --   function(p)          runs with the plugin on the runtimepath, not loaded
 --   function(p, done)    the same, finished when it calls done(ok, msg)
+--   vim.fn['x#build']    the same, a Vimscript function called with no arguments
 --
 -- While a shell or function build runs the plugin cannot load: a load that needs it waits
 -- and runs after. Ex commands and functions wait for VimEnter, since during init.lua the
@@ -112,6 +113,14 @@ local function shell(p, cmd, kind)
   end
 end
 
+--- `vim.fn['x#y']`: every such wrapper comes from one closure, so it shares its source line.
+---@param fn function
+---@return boolean
+local function is_vimfn(fn)
+  local a, b = debug.getinfo(fn, 'S'), debug.getinfo(vim.fn.exists, 'S')
+  return a.source == b.source and a.linedefined == b.linedefined
+end
+
 ---@param p team.Plugin
 ---@param fn function
 ---@param kind string
@@ -123,8 +132,13 @@ local function func(p, fn, kind)
   if p.state ~= 'loaded' then
     pcall(vim.cmd.packadd, { vim.fn.escape(p.name, ' '), bang = true, magic = { file = false } })
   end
-  local info = debug.getinfo(fn, 'u')
-  if not (info.isvararg or info.nparams >= 2) then
+  if is_vimfn(fn) then
+    -- A Vimscript function takes no plugin; Lua would pass it as a dict.
+    local ok, err = pcall(fn)
+    return finish(p, 'function', kind, t0, ok, not ok and tostring(err) or nil)
+  end
+  -- Async only when it names `done`: a vararg function is called with the plugin alone.
+  if debug.getinfo(fn, 'u').nparams < 2 then
     local ok, err = pcall(fn, p)
     return finish(p, 'function', kind, t0, ok, not ok and tostring(err) or nil)
   end
