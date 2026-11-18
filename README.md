@@ -127,6 +127,8 @@ In a folder named after the team, where each file returns specs. This is `lua/te
 return { 'neovim/nvim-lspconfig' }
 ```
 
+A file under `lua/plugins/` that returns fields beside its list of specs is a team too: `return { team = 'git', event = 'BufReadPre', { 'o/a' }, { 'o/b' } }`. Its `team` field names the team, else its file name does. A file of specs alone is not a team. A file whose only spec is a bare string, like `{ team = 'git', 'o/a' }`, reads as that one spec.
+
 Plugins outside any team come from `lua/plugins/`, as in cinch, and join the team `default`. A spec's own `team = 'git'` puts it in that team wherever it is written, and `team = false` keeps it out of every team. A plugin that two teams list stays in the first one read, with a warning.
 
 ### What members inherit

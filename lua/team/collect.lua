@@ -90,6 +90,42 @@ local function add_team(res, name, value, origin, notes)
   end
 end
 
+--- Whether a spec file's value is a team: a list of specs with fields beside it, like
+--- { team = 'git', event = 'BufReadPre', { 'o/a' }, { 'o/b' } }.
+---@param v any
+---@return boolean
+local function is_team_file(v)
+  if type(v) ~= 'table' or is_single(v) then
+    return false
+  end
+  for k in pairs(v) do
+    if type(k) ~= 'number' then
+      return true
+    end
+  end
+  return false
+end
+
+--- A spec file with fields: its `team`, else its file name, names the team.
+---@param res team.Collected
+---@param file string
+---@param value table
+---@param notes team.Notes
+local function add_team_file(res, file, value, notes)
+  local name = value.team
+  if name ~= nil and (type(name) ~= 'string' or name == '') then
+    notes:error({ file = file }, 'team should be a team name; the file name is used')
+    name = nil
+  end
+  local def = { plugins = vim.list_slice(value) }
+  for k, v in pairs(value) do
+    if type(k) == 'string' and k ~= 'team' then
+      def[k] = v
+    end
+  end
+  add_team(res, name or vim.fs.basename(file):gsub('%.lua$', ''), def, { file = file }, notes)
+end
+
 --- Lua files under a root, sorted, each with its path under the root.
 ---@param root string a module path like 'plugins', or a folder starting with / ~ or .
 ---@param top boolean also the module file itself, like lua/plugins.lua
@@ -193,7 +229,9 @@ function M.collect(config, origin, notes)
     else
       for _, f in ipairs(files(root, true)) do
         local ok, value = run(f.file)
-        if ok then
+        if ok and is_team_file(value) then
+          ok, value = pcall(add_team_file, res, f.file, value, notes)
+        elseif ok then
           ok, value = pcall(push, res.entries, value, { file = f.file })
         end
         if not ok then

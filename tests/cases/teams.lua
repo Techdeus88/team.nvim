@@ -51,6 +51,21 @@ H.write('lua/plugins/a.lua', {
   '}',
 })
 
+H.write('lua/plugins/filed.lua', {
+  'return {',
+  "  event = 'BufRead',",
+  "  { 'o/filed1' },",
+  "  { 'o/filed2', cmd = 'F2' },",
+  '}',
+})
+H.write('lua/plugins/named.lua', {
+  'return {',
+  "  team = 'custom',",
+  "  load = 'now',",
+  "  { 'o/named1' },",
+  '}',
+})
+
 H.after_startup(function()
   local g, notes = H.build({
     teams = {
@@ -148,4 +163,9 @@ H.after_startup(function()
   H.eq({ d.plugins.out.team, d.plugins.out.load }, { nil, 'later' }, 'team = false escapes it')
   H.eq(dnotes.list, {}, 'no notes')
   H.eq(d.teams.default.origin, { file = 'init.lua' }, 'default defined in setup()')
+
+  -- A spec file with fields beside its list is a team: named by `team`, else by the file.
+  H.eq(of('filed1'), { 'filed', 'trigger', { event = { 'BufRead' } } }, 'a spec file is a team named after it')
+  H.eq(of('filed2'), { 'filed', 'trigger', { event = { 'BufRead' }, cmd = { 'F2' } } }, 'its members inherit')
+  H.eq(of('named1'), { 'custom', 'now', {} }, 'its `team` field names the team over the file name')
 end)
